@@ -145,4 +145,89 @@ describe('Reservas API', () => {
       expect(response.body.error).toMatch(/posterior/i);
     });
   });
+
+  describe('exportación CSV', () => {
+    it('rechaza la exportación sin token', async () => {
+      const response = await request(app).get('/api/reservations/export');
+
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('No autorizado');
+    });
+
+    it('exporta reservas en CSV con encabezados y metadatos correctos', async () => {
+      const window = buildReservationWindow();
+
+      await request(app)
+        .post('/api/reservations')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(buildReservationPayload(space._id, window))
+        .expect(201);
+
+      const response = await request(app)
+        .get('/api/reservations/export')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/text\/csv/i);
+      expect(response.headers['content-disposition']).toMatch(/attachment; filename="reservas-\d{4}-\d{2}-\d{2}\.csv"/);
+      expect(response.headers['x-total-count']).toBe('1');
+      expect(response.text.startsWith('\uFEFF')).toBe(true);
+
+      const csv = response.text.replace(/^\uFEFF/, '');
+      const [headerLine, dataLine] = csv.split('\n');
+
+      expect(headerLine).toBe(
+        'Identificador;Espacio;Sede;Inicio;Fin;Estado;Cliente;Correo;Asistentes;Usuario creador;Fecha de creación'
+      );
+      expect(dataLine).toContain('Sala Norte');
+      expect(dataLine).toContain('Piso 2');
+      expect(dataLine).toContain('Cliente Demo');
+      expect(dataLine).toContain('cliente@example.com');
+      expect(dataLine).toContain('Pendiente');
+    });
+
+    it('aplica los mismos filtros que el listado y exporta todos los resultados', async () => {
+      const pendingWindow = buildReservationWindow({ startHour: 10, durationHours: 2 });
+      const confirmedWindow = buildReservationWindow({ startHour: 14, durationHours: 2 });
+
+      await request(app)
+        .post('/api/reservations')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(buildReservationPayload(space._id, pendingWindow, { status: 'pending' }))
+        .expect(201);
+
+      await request(app)
+        .post('/api/reservations')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(
+          buildReservationPayload(space._id, confirmedWindow, {
+            title: 'Reserva confirmada',
+            status: 'confirmed',
+          })
+        )
+        .expect(201);
+
+      const listResponse = await request(app)
+        .get('/api/reservations')
+        .query({ status: 'confirmed', limit: 1, page: 1 })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+
+      const exportResponse = await request(app)
+        .get('/api/reservations/export')
+        .query({ status: 'confirmed' })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+
+      expect(listResponse.body.pagination.total).toBe(1);
+      expect(exportResponse.headers['x-total-count']).toBe('1');
+
+      const csv = exportResponse.text.replace(/^\uFEFF/, '');
+      const dataLines = csv.split('\n').slice(1).filter(Boolean);
+
+      expect(dataLines).toHaveLength(1);
+      expect(dataLines[0]).toContain('Confirmado');
+      expect(dataLines[0]).toContain('Cliente Demo');
+    });
+  });
 });

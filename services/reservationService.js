@@ -4,6 +4,27 @@ const AppError = require('../utils/AppError');
 const { isValidEmail, normalizeEmail } = require('../utils/email');
 
 const ALLOWED_SORT_FIELDS = ['startDate', 'createdAt'];
+
+const STATUS_LABELS = {
+  pending: 'Pendiente',
+  confirmed: 'Confirmado',
+  cancelled: 'Cancelado',
+  completed: 'Completado',
+};
+
+const CSV_HEADERS = [
+  'Identificador',
+  'Espacio',
+  'Sede',
+  'Inicio',
+  'Fin',
+  'Estado',
+  'Cliente',
+  'Correo',
+  'Asistentes',
+  'Usuario creador',
+  'Fecha de creación',
+];
 const CREATE_STATUSES = ['pending', 'confirmed'];
 const UPDATE_STATUSES = ['pending', 'confirmed', 'completed'];
 const TERMINAL_STATUSES = ['cancelled', 'completed'];
@@ -152,16 +173,91 @@ const buildQuery = (filters) => {
   return query;
 };
 
+const getSortOptions = (queryParams) => {
+  const sortField = ALLOWED_SORT_FIELDS.includes(queryParams.sortBy)
+    ? queryParams.sortBy
+    : 'startDate';
+  const sortOrder = queryParams.sortOrder === 'asc' ? 1 : -1;
+  return { sortField, sortOrder };
+};
+
+const CSV_DELIMITER = ';';
+
+const escapeCsvField = (value) => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const str = String(value);
+  if (/[";\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+
+  return str;
+};
+
+const formatDateForCsv = (date) => {
+  if (!date) {
+    return '';
+  }
+
+  return new Date(date).toISOString();
+};
+
+const reservationToCsvRow = (reservation) => {
+  const space = reservation.space && typeof reservation.space === 'object' ? reservation.space : null;
+  const creator =
+    reservation.createdBy && typeof reservation.createdBy === 'object'
+      ? reservation.createdBy
+      : null;
+
+  return [
+    reservation._id.toString(),
+    space?.name || '',
+    space?.location || '',
+    formatDateForCsv(reservation.startDate),
+    formatDateForCsv(reservation.endDate),
+    STATUS_LABELS[reservation.status] || reservation.status,
+    reservation.clientName,
+    reservation.clientEmail,
+    reservation.attendees,
+    creator?.name || '',
+    formatDateForCsv(reservation.createdAt),
+  ]
+    .map(escapeCsvField)
+    .join(CSV_DELIMITER);
+};
+
+const buildExportFilename = () => {
+  const today = new Date().toISOString().slice(0, 10);
+  return `reservas-${today}.csv`;
+};
+
+const exportReservationsCsv = async (queryParams) => {
+  const { sortField, sortOrder } = getSortOptions(queryParams);
+  const query = buildQuery(queryParams);
+
+  const [reservations, total] = await Promise.all([
+    Reservation.find(query).populate(populateOptions).sort({ [sortField]: sortOrder }),
+    Reservation.countDocuments(query),
+  ]);
+
+  const rows = reservations.map(reservationToCsvRow);
+  const csv = `\uFEFF${CSV_HEADERS.join(CSV_DELIMITER)}\n${rows.join('\n')}`;
+
+  return {
+    csv,
+    filename: buildExportFilename(),
+    total,
+  };
+};
+
 const getReservations = async (queryParams) => {
   const page = Math.max(1, parseInt(queryParams.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(queryParams.limit, 10) || 10));
   const skip = (page - 1) * limit;
 
-  const sortField = ALLOWED_SORT_FIELDS.includes(queryParams.sortBy)
-    ? queryParams.sortBy
-    : 'startDate';
-  const sortOrder = queryParams.sortOrder === 'asc' ? 1 : -1;
-
+  const { sortField, sortOrder } = getSortOptions(queryParams);
   const query = buildQuery(queryParams);
 
   const [data, total] = await Promise.all([
@@ -360,4 +456,5 @@ module.exports = {
   createReservation,
   updateReservation,
   cancelReservation,
+  exportReservationsCsv,
 };

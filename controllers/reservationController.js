@@ -9,6 +9,19 @@ exports.getReservations = async (req, res, next) => {
   }
 };
 
+exports.exportReservations = async (req, res, next) => {
+  try {
+    const { csv, filename, total } = await reservationService.exportReservationsCsv(req.query);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-Total-Count', String(total));
+    res.send(csv);
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.getReservationById = async (req, res, next) => {
   try {
     const reservation = await reservationService.getReservationById(req.params.id);
