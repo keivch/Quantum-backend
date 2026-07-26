@@ -10,5 +10,6 @@ router.get('/:id', userController.getUserById);
 router.post('/', userController.createUser);
 router.put('/:id', userController.updateUser);
 router.patch('/:id/deactivate', userController.deactivateUser);
+router.patch('/:id/activate', userController.activateUser);
 
 module.exports = router;
