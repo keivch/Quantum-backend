@@ -1,5 +1,8 @@
 const Space = require('../models/Space');
+const Reservation = require('../models/Reservation');
 const AppError = require('../utils/AppError');
+
+const ACTIVE_RESERVATION_STATUSES = ['pending', 'confirmed'];
 
 const validateSchedule = (openingTime, closingTime) => {
   if (openingTime >= closingTime) {
@@ -60,11 +63,31 @@ const updateSpace = async (id, data) => {
 };
 
 const deactivateSpace = async (id) => {
-  const space = await Space.findByIdAndUpdate(id, { active: false }, { new: true });
+  const space = await Space.findById(id);
 
   if (!space) {
     throw new AppError('Espacio no encontrado', 404);
   }
+
+  if (!space.active) {
+    throw new AppError('El espacio ya está inactivo', 400);
+  }
+
+  const futureReservationsCount = await Reservation.countDocuments({
+    space: id,
+    status: { $in: ACTIVE_RESERVATION_STATUSES },
+    startDate: { $gte: new Date() },
+  });
+
+  if (futureReservationsCount > 0) {
+    throw new AppError(
+      `No se puede desactivar el espacio: tiene ${futureReservationsCount} reserva${futureReservationsCount === 1 ? '' : 's'} futura${futureReservationsCount === 1 ? '' : 's'} pendiente${futureReservationsCount === 1 ? '' : 's'} o confirmada${futureReservationsCount === 1 ? '' : 's'}. Gestiona o cancela esas reservas antes de continuar.`,
+      409
+    );
+  }
+
+  space.active = false;
+  await space.save();
 
   return space;
 };

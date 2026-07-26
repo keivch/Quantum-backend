@@ -4,10 +4,17 @@ const AppError = require('../utils/AppError');
 const { isValidEmail, normalizeEmail } = require('../utils/email');
 
 const ALLOWED_SORT_FIELDS = ['startDate', 'createdAt'];
-const ALLOWED_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'];
 const CREATE_STATUSES = ['pending', 'confirmed'];
 const UPDATE_STATUSES = ['pending', 'confirmed', 'completed'];
 const TERMINAL_STATUSES = ['cancelled', 'completed'];
+const BLOCKING_STATUSES = ['pending', 'confirmed'];
+
+const parseTimeToMinutes = (timeStr) => {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
+const getDateTimeMinutes = (date) => date.getHours() * 60 + date.getMinutes();
 
 const validateDates = (startDate, endDate) => {
   const start = new Date(startDate);
@@ -39,6 +46,63 @@ const validateAttendees = (attendees, space) => {
   }
 
   return count;
+};
+
+const validateNotPastDate = (start) => {
+  if (start < new Date()) {
+    throw new AppError('No se pueden crear reservas en fechas pasadas', 400);
+  }
+};
+
+const validateWithinOpeningHours = (start, end, space) => {
+  const openingMinutes = parseTimeToMinutes(space.openingTime);
+  const closingMinutes = parseTimeToMinutes(space.closingTime);
+  const startMinutes = getDateTimeMinutes(start);
+  const endMinutes = getDateTimeMinutes(end);
+
+  if (openingMinutes >= closingMinutes) {
+    throw new AppError('El horario del espacio no es válido', 400);
+  }
+
+  if (startMinutes < openingMinutes) {
+    throw new AppError(
+      `La reserva no puede comenzar antes de la apertura del espacio (${space.openingTime})`,
+      400
+    );
+  }
+
+  if (endMinutes > closingMinutes) {
+    throw new AppError(
+      `La reserva no puede terminar después del cierre del espacio (${space.closingTime})`,
+      400
+    );
+  }
+};
+
+const findScheduleConflict = async (spaceId, start, end, excludeId = null) => {
+  const query = {
+    space: spaceId,
+    status: { $in: BLOCKING_STATUSES },
+    startDate: { $lt: end },
+    endDate: { $gt: start },
+  };
+
+  if (excludeId) {
+    query._id = { $ne: excludeId };
+  }
+
+  return Reservation.findOne(query);
+};
+
+const validateNoScheduleConflict = async (spaceId, start, end, excludeId = null) => {
+  const conflict = await findScheduleConflict(spaceId, start, end, excludeId);
+
+  if (conflict) {
+    throw new AppError(
+      'Ya existe una reserva pendiente o confirmada en ese horario para este espacio',
+      409
+    );
+  }
 };
 
 const validateSpaceForReservation = async (spaceId) => {
@@ -176,6 +240,10 @@ const createReservation = async (data, userId) => {
   const attendeeCount = validateAttendees(attendees, spaceDoc);
   const { start, end } = validateDates(startDate, endDate);
 
+  validateNotPastDate(start);
+  validateWithinOpeningHours(start, end, spaceDoc);
+  await validateNoScheduleConflict(space, start, end);
+
   return Reservation.create({
     title,
     clientName,
@@ -240,13 +308,20 @@ const updateReservation = async (id, data) => {
     validateAttendees(reservation.attendees, spaceDoc);
   }
 
-  const startDate = data.startDate ?? reservation.startDate;
-  const endDate = data.endDate ?? reservation.endDate;
-  if (data.startDate !== undefined || data.endDate !== undefined) {
-    const { start, end } = validateDates(startDate, endDate);
+  const nextStartDate = data.startDate ?? reservation.startDate;
+  const nextEndDate = data.endDate ?? reservation.endDate;
+  const { start, end } = validateDates(nextStartDate, nextEndDate);
+
+  if (data.startDate !== undefined) {
     updates.startDate = start;
+  }
+  if (data.endDate !== undefined) {
     updates.endDate = end;
   }
+
+  validateNotPastDate(start);
+  validateWithinOpeningHours(start, end, spaceDoc);
+  await validateNoScheduleConflict(spaceId, start, end, reservation._id);
 
   const updated = await Reservation.findByIdAndUpdate(id, updates, {
     new: true,
