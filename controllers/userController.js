@@ -44,3 +44,12 @@ exports.deactivateUser = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.activateUser = async (req, res, next) => {
+  try {
+    const user = await userService.activateUser(req.params.id);
+    res.json(user);
+  } catch (error) {
+    next(error);
+  }
+};

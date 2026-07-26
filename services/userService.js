@@ -73,13 +73,35 @@ const updateUser = async (id, { name, email, role, active }) => {
 };
 
 const deactivateUser = async (id) => {
-  const user = await User.findByIdAndUpdate(id, { active: false }, { new: true }).select(
-    '-password'
-  );
+  const user = await User.findById(id).select('-password');
 
   if (!user) {
     throw new AppError('Usuario no encontrado', 404);
   }
+
+  if (!user.active) {
+    throw new AppError('El usuario ya está inactivo', 400);
+  }
+
+  user.active = false;
+  await user.save();
+
+  return user;
+};
+
+const activateUser = async (id) => {
+  const user = await User.findById(id).select('-password');
+
+  if (!user) {
+    throw new AppError('Usuario no encontrado', 404);
+  }
+
+  if (user.active) {
+    throw new AppError('El usuario ya está activo', 400);
+  }
+
+  user.active = true;
+  await user.save();
 
   return user;
 };
@@ -91,4 +113,5 @@ module.exports = {
   createUser,
   updateUser,
   deactivateUser,
+  activateUser,
 };
