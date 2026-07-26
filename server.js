@@ -15,6 +15,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/spaces', require('./routes/spaceRoutes'));
+app.use('/api/reservations', require('./routes/reservationRoutes'));
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({ message: 'Servidor ejecutándose correctamente' });
