@@ -1,83 +1,46 @@
-const User = require('../models/User');
+const userService = require('../services/userService');
 
-// Obtener todos los usuarios
-exports.getUsers = async (req, res) => {
+exports.getUsers = async (req, res, next) => {
   try {
-    const users = await User.find().select('-password');
+    const users = await userService.getAllUsers();
     res.json(users);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 };
 
-// Obtener un usuario por ID
-exports.getUserById = async (req, res) => {
+exports.getUserById = async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
+    const user = await userService.getUserById(req.params.id);
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 };
 
-// Crear un nuevo usuario
-exports.createUser = async (req, res) => {
+exports.createUser = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
-
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ error: 'El usuario ya existe' });
-    }
-
-    const user = new User({
-      name,
-      email,
-      password,
-    });
-
-    await user.save();
-    const userResponse = user.toObject();
-    delete userResponse.password;
-
-    res.status(201).json(userResponse);
+    const user = await userService.createUser(req.body);
+    res.status(201).json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 };
 
-// Actualizar un usuario
-exports.updateUser = async (req, res) => {
+exports.updateUser = async (req, res, next) => {
   try {
-    const { name, email, role } = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { name, email, role },
-      { new: true }
-    ).select('-password');
-
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
+    const user = await userService.updateUser(req.params.id, req.body);
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 };
 
-// Eliminar un usuario
-exports.deleteUser = async (req, res) => {
+exports.deactivateUser = async (req, res, next) => {
   try {
-    const user = await User.findByIdAndDelete(req.params.id);
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-    res.json({ message: 'Usuario eliminado correctamente' });
+    const user = await userService.deactivateUser(req.params.id);
+    res.json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 };
